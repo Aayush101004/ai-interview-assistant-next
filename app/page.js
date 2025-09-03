@@ -67,7 +67,7 @@ export default function Home() {
   }, []);
 
   const loadFaceApiModels = async () => {
-    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+    const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
     try {
       setIsLoading(true);
       await Promise.all([
