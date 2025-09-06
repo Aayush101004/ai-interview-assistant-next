@@ -1,8 +1,28 @@
 "use client";
 
-import { AlertTriangle, Bot, CheckCircle, Loader2, Mic, ScreenShare, Upload, User, Video } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Bot, CheckCircle, Loader2, Mic, ScreenShare, User, X, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DS_QUESTIONS, SDE_QUESTIONS } from './questions';
+
+// Helper component for displaying permission status
+const PermissionStatus = ({ text, status }) => {
+  const statusConfig = {
+    pending: { icon: <AlertCircle className="h-5 w-5 text-yellow-400" />, textClass: 'text-yellow-400' },
+    granted: { icon: <CheckCircle className="h-5 w-5 text-green-400" />, textClass: 'text-green-400' },
+    denied: { icon: <XCircle className="h-5 w-5 text-red-400" />, textClass: 'text-red-400' },
+  };
+
+  const { icon, textClass } = statusConfig[status] || statusConfig.pending;
+  const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+
+  return (
+    <div className="flex items-center space-x-3">
+      {icon}
+      <p className={`font-medium ${textClass}`}>{text}: {statusText}</p>
+    </div>
+  );
+};
+
 
 export default function Home() {
   const [stage, setStage] = useState('setup'); // setup, permissions, interview, end
@@ -12,9 +32,11 @@ export default function Home() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Permissions State
-  const [cameraEnabled, setCameraEnabled] = useState(false);
-  const [screenShareEnabled, setScreenShareEnabled] = useState(false);
+  // Updated permissions state
+  const [permissions, setPermissions] = useState({
+    camera: 'pending',
+    screen: 'pending',
+  });
 
   // Interview State
   const [questions, setQuestions] = useState([]);
@@ -35,6 +57,10 @@ export default function Home() {
 
   // Load external scripts
   useEffect(() => {
+    if (stage === 'permissions') {
+      requestPermissions();
+    }
+    
     const loadScript = (src) => {
       return new Promise((resolve, reject) => {
         if (document.querySelector(`script[src="${src}"]`)) {
@@ -54,8 +80,12 @@ export default function Home() {
       loadScript('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js'),
     ]).then(() => {
       console.log('External scripts loaded');
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
-      loadFaceApiModels();
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
+      }
+      if (window.faceapi) {
+        loadFaceApiModels();
+      }
     }).catch(err => {
       console.error(err);
       setError('Could not load necessary libraries. Please refresh the page.');
@@ -64,7 +94,7 @@ export default function Home() {
     return () => {
       if (faceApiIntervalRef.current) clearInterval(faceApiIntervalRef.current);
     };
-  }, []);
+  }, [stage]);
 
   const loadFaceApiModels = async () => {
     const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
@@ -84,7 +114,6 @@ export default function Home() {
     }
   };
 
-
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file && file.type === "application/pdf" && file.size < 10 * 1024 * 1024) {
@@ -94,6 +123,11 @@ export default function Home() {
       setResumeFile(null);
       setError("Please upload a PDF file smaller than 10MB.");
     }
+  };
+
+  const removeFile = () => {
+    setResumeFile(null);
+    setResumeText('');
   };
 
   const parseResume = async () => {
@@ -113,9 +147,7 @@ export default function Home() {
           setResumeText(textContent);
           resolve();
         };
-        reader.onerror = () => {
-          reject(new Error("Failed to read file."));
-        };
+        reader.onerror = () => reject(new Error("Failed to read file."));
         reader.readAsArrayBuffer(resumeFile);
       } catch (e) {
         reject(e);
@@ -142,35 +174,37 @@ export default function Home() {
   };
 
   const requestPermissions = async () => {
+    // Request Camera and Mic
     try {
-      // Camera
-      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       if (videoRef.current) {
         videoRef.current.srcObject = videoStream;
-        setCameraEnabled(true);
       }
+      setPermissions(prev => ({ ...prev, camera: 'granted' }));
+    } catch (err) {
+      setPermissions(prev => ({ ...prev, camera: 'denied' }));
+      console.error("Camera/Mic permission error:", err);
+    }
 
-      // Screen Share
+    // Request Screen Share
+    try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "monitor" } });
       if (screenStream.getVideoTracks()[0].getSettings().displaySurface !== 'monitor') {
         screenStream.getTracks().forEach(track => track.stop());
         throw new Error("Please share your entire screen, not a window or tab.");
       }
-      if (screenRef.current) {
-        screenRef.current.srcObject = screenStream;
-        setScreenShareEnabled(true);
-      }
-
+      // We don't need to display the screen share, just get permission and stop tracks
+      screenStream.getTracks().forEach(track => track.stop());
+      setPermissions(prev => ({ ...prev, screen: 'granted' }));
     } catch (err) {
-      setError(`Permission denied: ${err.message}. Please enable camera and entire screen sharing in your browser settings to continue.`);
-      setCameraEnabled(false);
-      setScreenShareEnabled(false);
+      setPermissions(prev => ({ ...prev, screen: 'denied' }));
+      console.error("Screen Share permission error:", err);
     }
   };
 
   const startInterview = () => {
-    if (!cameraEnabled || !screenShareEnabled) {
-      setError("Camera and Screen Sharing must be enabled to start.");
+    if (permissions.camera !== 'granted' || permissions.screen !== 'granted') {
+      setError("All permissions must be granted to start the interview.");
       return;
     }
     setStage('interview');
@@ -188,19 +222,6 @@ export default function Home() {
       questionPool = [...SDE_QUESTIONS, ...DS_QUESTIONS].filter((v, i, a) => a.findIndex(t => (t.question === v.question)) === i);
     }
 
-    const resumeKeywords = {
-      'react': { question: "Tell me about your experience with React and describe a challenging project you built with it.", type: "Technical" },
-      'python': { question: "I see you have experience with Python. Can you explain the difference between a list and a tuple?", type: "Technical" },
-      'sql': { question: "Your resume mentions SQL. Can you describe a complex query you've written?", type: "Technical" },
-      'machine learning': { question: "You've listed Machine Learning. Can you explain a project where you implemented an ML model from scratch?", type: "Technical" }
-    };
-
-    Object.keys(resumeKeywords).forEach(key => {
-      if (resumeText.toLowerCase().includes(key)) {
-        questionPool.unshift(resumeKeywords[key]);
-      }
-    });
-
     const shuffled = [...questionPool].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, Math.floor(Math.random() * (6 - 3 + 1)) + 3);
 
@@ -217,24 +238,27 @@ export default function Home() {
 
     setQuestions(finalQuestions);
   };
-
+  
   useEffect(() => {
     if (stage === 'interview' && questions.length > 0 && !isBotSpeaking) {
       askQuestion(questions[currentQuestionIndex].question);
     }
   }, [stage, questions, currentQuestionIndex]);
 
+
   const askQuestion = (text) => {
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
+    if ('speechSynthesis' in window) {
+      if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+      }
+      setIsBotSpeaking(true);
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.onend = () => {
+        setIsBotSpeaking(false);
+        startListening();
+      };
+      speechSynthesis.speak(utterance);
     }
-    setIsBotSpeaking(true);
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.onend = () => {
-      setIsBotSpeaking(false);
-      startListening();
-    };
-    speechSynthesis.speak(utterance);
   };
 
   const startListening = () => {
@@ -247,33 +271,22 @@ export default function Home() {
     if (speechRecognitionRef.current) {
       speechRecognitionRef.current.stop();
     }
-
     const recognition = new window.webkitSpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
     speechRecognitionRef.current = recognition;
 
-    recognition.onstart = () => {
-      setIsListening(true);
-      resetSilenceTimer();
-    };
-
+    recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       handleUserSpeech(transcript);
-      clearTimeout(silenceTimerRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
-
-    recognition.onerror = (event) => {
-      console.error("Speech recognition error:", event.error);
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
+    recognition.onerror = (event) => console.error("Speech recognition error:", event.error);
+    recognition.onend = () => setIsListening(false);
 
     recognition.start();
+    resetSilenceTimer();
   };
 
   const resetSilenceTimer = () => {
@@ -325,28 +338,22 @@ export default function Home() {
     if (faceApiIntervalRef.current) clearInterval(faceApiIntervalRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (speechRecognitionRef.current) speechRecognitionRef.current.stop();
-
   };
 
   const startProctoring = () => {
     faceApiIntervalRef.current = setInterval(async () => {
       if (videoRef.current && videoRef.current.readyState === 4 && window.faceapi) {
         const detections = await window.faceapi.detectAllFaces(videoRef.current, new window.faceapi.TinyFaceDetectorOptions());
-
-        if (detections.length === 0) {
-          addWarning("No person detected in the camera.");
-        } else if (detections.length > 1) {
-          addWarning("Multiple people detected in the camera.");
-        }
+        if (detections.length === 0) addWarning("No person detected in the camera.");
+        else if (detections.length > 1) addWarning("Multiple people detected in the camera.");
       }
-      if (document.hidden) {
-        addWarning("User switched tabs or minimized the window.");
-      }
+      if (document.hidden) addWarning("User switched tabs or minimized the window.");
     }, 5000);
   };
 
   const addWarning = (message) => {
     setWarnings(prev => {
+      if (prev.some(w => w.message === message)) return prev;
       const newWarnings = [...prev, { message, time: new Date() }];
       if (newWarnings.length > 3) {
         endInterview("The interview has been terminated due to multiple violations.");
@@ -356,135 +363,124 @@ export default function Home() {
   };
 
   const renderSetup = () => (
-    <div className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-2xl text-center animate-fade-in">
-      <Bot size={48} className="mx-auto text-blue-400 mb-4" />
-      <h1 className="text-3xl font-bold mb-2">AI Interview Assistant</h1>
-      <p className="text-gray-400 mb-6">Upload your resume and specify the job profile to begin.</p>
-
-      <div className="space-y-6 text-left">
+    <div className="w-full max-w-2xl mx-auto p-8 bg-card rounded-lg shadow-2xl border border-border">
+      <h2 className="text-3xl font-bold text-center mb-2 text-foreground">AI Interview Assistant</h2>
+      <p className="text-center text-accent mb-8">Upload your resume and specify the job profile to begin.</p>
+      <div className="space-y-6">
         <div>
-          <label htmlFor="job-profile" className="block text-sm font-medium text-gray-300 mb-1">Job Profile</label>
+          <label htmlFor="job-profile" className="block text-sm font-medium text-accent mb-1 text-left">Job Profile</label>
           <input
             type="text"
             id="job-profile"
             value={jobProfile}
             onChange={(e) => setJobProfile(e.target.value)}
             placeholder="e.g., Senior SDE, Data Scientist"
-            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="w-full bg-input border border-border rounded-md px-4 py-2 text-foreground focus:ring-2 focus:ring-primary focus:outline-none"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1">Upload Resume (PDF)</label>
-          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md">
-            <div className="space-y-1 text-center">
-              <Upload className="mx-auto h-12 w-12 text-gray-500" />
-              <div className="flex text-sm text-gray-400">
-                <label htmlFor="file-upload" className="relative cursor-pointer bg-gray-700 rounded-md font-medium text-blue-400 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-offset-gray-800 focus-within:ring-blue-500 px-2">
-                  <span>Click to upload</span>
-                  <input id="file-upload" name="file-upload" type="file" className="sr-only" accept=".pdf" onChange={handleFileChange} />
-                </label>
-                <p className="pl-1">or drag and drop</p>
+          <label className="block text-sm font-medium text-accent mb-1 text-left">Upload Resume (PDF)</label>
+          {!resumeFile ? (
+            <label htmlFor="file-upload" className="relative cursor-pointer mt-1 flex flex-col items-center justify-center w-full h-32 px-6 pt-5 pb-6 border-2 border-border border-dashed rounded-md hover:border-primary transition-colors">
+              <div className="space-y-1 text-center">
+                <p className="text-sm text-accent">Click to upload or drag and drop</p>
+                <p className="text-xs text-accent/70">PDF (MAX. 10MB)</p>
               </div>
-              <p className="text-xs text-gray-500">PDF (MAX. 10MB)</p>
+              <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".pdf" />
+            </label>
+          ) : (
+            <div className="mt-1 flex items-center justify-between w-full h-auto min-h-[5rem] px-4 py-2 bg-input border-2 border-primary rounded-md">
+              <p className="text-sm text-foreground truncate">{resumeFile.name}</p>
+              <button onClick={removeFile} className="text-accent hover:text-red-500 p-1 rounded-full">
+                <X size={20} />
+              </button>
             </div>
-          </div>
-          {resumeFile && <p className="text-sm text-green-400 mt-2 text-center">File selected: {resumeFile.name}</p>}
+          )}
         </div>
       </div>
-
-      {error && <p className="text-red-400 mt-4"><AlertTriangle className="inline mr-2 h-4 w-4" />{error}</p>}
-
-      <button
-        onClick={proceedToPermissions}
-        disabled={isLoading}
-        className="w-full mt-8 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-md transition duration-300 disabled:bg-gray-500 flex items-center justify-center"
-      >
-        {isLoading && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
-        {isLoading ? 'Analyzing...' : 'Proceed to System Check'}
-      </button>
+       {error && <p className="text-red-400 mt-4"><AlertTriangle className="inline mr-2 h-4 w-4" />{error}</p>}
+      <div className="mt-8">
+        <button
+          onClick={proceedToPermissions}
+          className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 px-4 rounded-md transition duration-300 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
+          disabled={!jobProfile || !resumeFile || isLoading}
+        >
+          {isLoading ? 'Processing...' : 'Proceed to System Check'}
+        </button>
+      </div>
     </div>
   );
 
   const renderPermissions = () => (
-    <div className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-2xl text-center animate-fade-in">
-      <h2 className="text-2xl font-bold mb-4">System Check</h2>
-      <p className="text-gray-400 mb-6">We need access to your camera and screen for the interview.</p>
-      <div className="flex flex-col md:flex-row gap-4 justify-center items-center my-6">
-        <div className="w-full md:w-1/2 p-4 bg-gray-700 rounded-lg">
-          <Video className={`mx-auto h-12 w-12 ${cameraEnabled ? 'text-green-400' : 'text-gray-500'}`} />
-          <p className="mt-2">Camera Access</p>
-          {cameraEnabled && <CheckCircle className="mx-auto mt-1 h-6 w-6 text-green-400" />}
-        </div>
-        <div className="w-full md:w-1/2 p-4 bg-gray-700 rounded-lg">
-          <ScreenShare className={`mx-auto h-12 w-12 ${screenShareEnabled ? 'text-green-400' : 'text-gray-500'}`} />
-          <p className="mt-2">Entire Screen Share</p>
-          {screenShareEnabled && <CheckCircle className="mx-auto mt-1 h-6 w-6 text-green-400" />}
-        </div>
+    <div className="w-full max-w-2xl mx-auto p-8 bg-card rounded-lg shadow-xl text-center border border-border">
+      <h2 className="text-2xl font-bold mb-4">System & Permissions Check</h2>
+      <p className="text-accent mb-6">We need to check your camera, microphone, and screen sharing.</p>
+      <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-md bg-background mb-6 aspect-video"></video>
+      <div className="space-y-4 text-left mb-8">
+        <PermissionStatus text="Camera & Microphone" status={permissions.camera} />
+        <PermissionStatus text="Screen Share" status={permissions.screen} />
       </div>
-
-      <video ref={videoRef} autoPlay muted playsInline className="hidden" />
-      <video ref={screenRef} autoPlay muted className="hidden" />
-
-      {error && <p className="text-red-400 mt-4"><AlertTriangle className="inline mr-2 h-4 w-4" />{error}</p>}
-
-      {(!cameraEnabled || !screenShareEnabled) && (
-        <button onClick={requestPermissions} className="w-full mt-4 bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded-md transition duration-300">
-          Enable Permissions
-        </button>
-      )}
       <button
         onClick={startInterview}
-        disabled={!cameraEnabled || !screenShareEnabled}
-        className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-md transition duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed"
+        className="w-full bg-secondary hover:bg-secondary-hover text-white font-bold py-3 px-4 rounded-md transition duration-300 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
+        disabled={permissions.camera !== 'granted' || permissions.screen !== 'granted' || isLoading}
       >
-        Start Interview
+        {isLoading ? 'Generating Questions...' : 'Start Interview'}
       </button>
     </div>
   );
 
   const renderInterview = () => (
     <div className="w-full h-screen flex flex-col p-4 gap-4">
-      {/* Main Content */}
       <div className="flex-grow flex gap-4">
-        <div className="w-2/3 flex flex-col bg-gray-800 rounded-lg p-6 relative shadow-lg">
+        <div className="w-2/3 flex flex-col bg-card rounded-lg p-6 relative shadow-lg border border-border">
           <div className="flex items-center mb-4">
-            <Bot className="h-8 w-8 text-blue-400 mr-3" />
+            <Bot className="h-8 w-8 text-secondary mr-3" />
             <h2 className="text-xl font-semibold">Interviewer</h2>
           </div>
           <div className="flex-grow flex items-center justify-center">
             {questions.length > 0 && (
-              <p className="text-2xl text-center font-medium text-gray-100 animate-fade-in">
+              <p className="text-2xl text-center font-medium text-foreground animate-fade-in">
                 {questions[currentQuestionIndex].question}
               </p>
             )}
           </div>
-          <div className="absolute bottom-4 left-6 flex items-center gap-4">
-            <div className="flex items-center gap-2 text-gray-400">
-              <Mic className={`h-5 w-5 ${isListening ? 'text-green-400 animate-pulse' : ''}`} />
-              <span>{isListening ? 'Listening...' : 'Mic Idle'}</span>
+          
+          {/* --- UPDATED SECTION START --- */}
+          <div className="absolute bottom-6 left-6 flex items-center space-x-6">
+            {/* Mic Status */}
+            <div className="flex items-center space-x-2 text-accent">
+              <Mic className={`h-5 w-5 flex-shrink-0 ${isListening ? 'text-green-400 animate-pulse' : ''}`} />
+              <span className="whitespace-nowrap">{isListening ? 'Listening...' : 'Mic Idle'}</span>
             </div>
-            <div className="flex items-center gap-2 text-gray-400">
-              {isBotSpeaking ? <Loader2 className="h-5 w-5 animate-spin text-blue-400" /> : <div className="w-5 h-5" />}
-              <span>{isBotSpeaking ? 'Speaking...' : 'Bot Idle'}</span>
+            {/* Bot Status */}
+            <div className="flex items-center space-x-2 text-accent">
+              {isBotSpeaking ? (
+                <Loader2 className="h-5 w-5 animate-spin text-secondary flex-shrink-0" />
+              ) : (
+                <div className="w-5 h-5 flex-shrink-0" /> // Placeholder to prevent layout shift
+              )}
+              <span className="whitespace-nowrap">{isBotSpeaking ? 'Speaking...' : 'Bot Idle'}</span>
             </div>
           </div>
-        </div>
+          {/* --- UPDATED SECTION END --- */}
 
+        </div>
         <div className="w-1/3 flex flex-col gap-4">
-          <div className="bg-gray-800 rounded-lg p-2 flex-grow relative shadow-lg">
+          <div className="bg-card rounded-lg p-2 flex-grow relative shadow-lg border border-border">
             <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover rounded-md" />
             <div className="absolute top-2 left-2 bg-black bg-opacity-50 px-2 py-1 rounded-md text-sm flex items-center"><User className="h-4 w-4 mr-1" />Your Camera</div>
           </div>
-          <div className="bg-gray-800 rounded-lg p-2 h-1/3 relative shadow-lg">
+          <div className="bg-card rounded-lg p-2 h-1/3 relative shadow-lg border border-border">
             <video ref={screenRef} autoPlay muted className="w-full h-full object-cover rounded-md" />
             <div className="absolute top-2 left-2 bg-black bg-opacity-50 px-2 py-1 rounded-md text-sm flex items-center"><ScreenShare className="h-4 w-4 mr-1" />Your Screen</div>
           </div>
         </div>
       </div>
-      <div className="h-24 bg-gray-800 rounded-lg p-3 overflow-y-auto shadow-lg">
-        <h3 className="text-sm font-semibold text-gray-400 mb-2 flex items-center"><AlertTriangle className="h-4 w-4 mr-2 text-yellow-500" />Proctoring Warnings</h3>
+      <div className="h-24 bg-card rounded-lg p-3 overflow-y-auto shadow-lg border border-border">
+        <h3 className="text-sm font-semibold text-accent mb-2 flex items-center"><AlertTriangle className="h-4 w-4 mr-2 text-yellow-500" />Proctoring Warnings</h3>
         {warnings.length === 0 ? (
-          <p className="text-sm text-gray-500">No warnings yet.</p>
+          <p className="text-sm text-accent">No warnings yet.</p>
         ) : (
           <ul className="text-xs text-yellow-400 space-y-1">
             {warnings.map((w, i) => (
@@ -497,18 +493,15 @@ export default function Home() {
   );
 
   const renderEnd = () => (
-    <div className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-2xl text-center animate-fade-in">
-      <Bot size={48} className="mx-auto text-blue-400 mb-4" />
+    <div className="w-full max-w-2xl mx-auto p-8 bg-card rounded-lg shadow-xl text-center border border-border">
+      <Bot size={48} className="mx-auto text-secondary mb-4" />
       <h1 className="text-3xl font-bold mb-2">Interview Finished</h1>
-      <p className="text-gray-400 mb-6">
-        The interview has concluded. It was nice talking to you. Thank you!
-      </p>
+      <p className="text-accent mb-6">The interview has concluded. It was nice talking to you. Thank you!</p>
     </div>
   );
 
-
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 md:p-8">
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 md:p-8 bg-background">
       {stage === 'setup' && renderSetup()}
       {stage === 'permissions' && renderPermissions()}
       {stage === 'interview' && renderInterview()}

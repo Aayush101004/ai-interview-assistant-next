@@ -1,8 +1,76 @@
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
+@import "tailwindcss/preflight";
+@tailwind utilities;
 
-/* body {
-  font-family: 'Inter', sans-serif;
+/* @layer base {
+    body {
+        background-color: theme('colors.background');
+        color: theme('colors.foreground');
+        font-family: 'Inter', sans-serif;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+} */
+
+@layer components {
+
+    /* --- Reusable Card & Form Styles --- */
+    .card-container {
+        @apply w-full max-w-2xl mx-auto p-8 bg-card rounded-lg shadow-2xl border border-border text-center;
+    }
+
+    .card-title {
+        @apply text-3xl font-bold text-center mb-2 text-foreground;
+    }
+
+    .card-subtitle {
+        @apply text-center text-accent mb-8;
+    }
+
+    .form-label {
+        @apply block text-sm font-medium text-accent mb-1 text-left;
+    }
+
+    .form-input {
+        @apply w-full bg-input border border-border rounded-md px-4 py-2 text-foreground placeholder-gray-500 focus:ring-2 focus:ring-primary focus:outline-none;
+    }
+
+    .file-dropzone {
+        @apply relative cursor-pointer mt-1 flex flex-col items-center justify-center w-full h-32 px-6 pt-5 pb-6 border-2 border-border border-dashed rounded-md hover:border-primary transition-colors;
+    }
+
+    .file-display {
+        @apply mt-1 flex items-center justify-between w-full h-auto min-h-[5rem] px-4 py-2 bg-input border-2 border-primary rounded-md;
+    }
+
+    .button-primary {
+        @apply w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 px-4 rounded-md transition duration-300 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed;
+    }
+
+    .button-secondary {
+        @apply w-full bg-secondary hover:bg-secondary-hover text-white font-bold py-3 px-4 rounded-md transition duration-300 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed;
+    }
+
+    /* --- Interview Screen Specific Styles --- */
+    .interview-container {
+        @apply w-full h-screen flex flex-col p-4 gap-4;
+    }
+
+    .interviewer-panel {
+        @apply w-2/3 flex flex-col bg-card rounded-lg p-6 relative shadow-lg border border-border;
+    }
+
+    .video-panel {
+        @apply w-1/3 flex flex-col gap-4;
+    }
+
+    .video-feed {
+        @apply bg-card rounded-lg p-2 flex-grow relative shadow-lg border border-border;
+    }
+
+    .proctoring-panel {
+        @apply h-24 bg-card rounded-lg p-3 overflow-y-auto shadow-lg border border-border;
+    }
 }
- */

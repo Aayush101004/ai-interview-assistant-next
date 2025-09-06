@@ -8,19 +8,21 @@ const config = {
     darkMode: 'class',
     theme: {
         extend: {
-            animation: {
-                'fade-in': 'fadeIn 0.5s ease-in-out',
-            },
-            keyframes: {
-                fadeIn: {
-                    '0%': { opacity: '0' },
-                    '100%': { opacity: '1' },
-                },
-            },
+            colors: {
+                background: '#121212',
+                card: '#1E1E1E',
+                input: '#2A2A2A',
+                border: '#3A3A3A',
+                foreground: '#EAEAEA',
+                accent: '#A0A0A0',
+                primary: '#A78BFA', // Purple
+                'primary-hover': '#9370DB',
+                secondary: '#60A5FA', // Blue
+                'secondary-hover': '#3B82F6',
+            }
         },
     },
     plugins: [],
 };
 
 export default config;
-
